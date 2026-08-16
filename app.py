@@ -2,37 +2,50 @@ import streamlit as st
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain.agents import create_agent
-from langchain_community.utilities import (
-    ArxivAPIWrapper,
-    WikipediaAPIWrapper,
-)
-from langchain_community.tools import (
-    ArxivQueryRun,
-    WikipediaQueryRun,
-    DuckDuckGoSearchRun,
-)
+from langchain_community.tools import DuckDuckGoSearchRun
 
 load_dotenv()
 
 # ----------------------------
-# Tools
+# Tool
 # ----------------------------
-
-arxiv_wrapper = ArxivAPIWrapper(
-    top_k_results=1,
-    doc_content_chars_max=200,
-)
-arxiv = ArxivQueryRun(api_wrapper=arxiv_wrapper)
-
-wiki_wrapper = WikipediaAPIWrapper(
-    top_k_results=1,
-    doc_content_chars_max=200,
-)
-wiki = WikipediaQueryRun(api_wrapper=wiki_wrapper)
 
 search = DuckDuckGoSearchRun()
 
-tools = [search, arxiv, wiki]
+tools = [search]
+
+
+# ----------------------------
+# System Prompt
+# ----------------------------
+
+SYSTEM_PROMPT = """
+You are a reliable web research assistant.
+
+For current, recent, ranking, financial, statistical, historical,
+or time-sensitive questions, ALWAYS use the web search tool.
+
+Do not answer factual questions from memory when web search can
+verify the information.
+
+For rankings and numerical information:
+- Search the web first.
+- Prefer authoritative sources.
+- Prefer one reliable source containing the complete ranking.
+- Do not combine information from different dates or sources.
+- Do not mix annual rankings with real-time rankings.
+
+Pay close attention to dates mentioned by the user.
+
+If search results conflict, perform another search and compare
+the information.
+
+Never invent facts, numbers, rankings, dates, or sources.
+
+Give a concise and accurate answer.
+Mention the important source or date when relevant.
+"""
+
 
 # ----------------------------
 # Streamlit UI
@@ -41,10 +54,16 @@ tools = [search, arxiv, wiki]
 st.title("🔎 LangChain v1 Search Agent")
 
 st.sidebar.title("Settings")
+
 api_key = st.sidebar.text_input(
     "Groq API Key",
-    type="password",
+    type="password"
 )
+
+
+# ----------------------------
+# Chat History
+# ----------------------------
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
@@ -54,14 +73,20 @@ if "messages" not in st.session_state:
         }
     ]
 
+
 for msg in st.session_state.messages:
     st.chat_message(msg["role"]).write(msg["content"])
+
 
 # ----------------------------
 # Chat
 # ----------------------------
 
 if prompt := st.chat_input("Ask anything..."):
+
+    if not api_key:
+        st.error("Please enter your Groq API key.")
+        st.stop()
 
     st.session_state.messages.append(
         {
@@ -74,18 +99,17 @@ if prompt := st.chat_input("Ask anything..."):
 
     llm = ChatGroq(
         api_key=api_key,
-        model="openai/gpt-oss-120b",
-        temperature=0,
+        model="llama-3.1-8b-instant",
+        temperature=0
     )
 
     agent = create_agent(
         model=llm,
         tools=tools,
+        system_prompt=SYSTEM_PROMPT
     )
 
     with st.chat_message("assistant"):
-
-        placeholder = st.empty()
 
         final_response = ""
 
@@ -93,22 +117,21 @@ if prompt := st.chat_input("Ask anything..."):
             {
                 "messages": st.session_state.messages
             },
-            stream_mode="updates",
+            stream_mode="updates"
         ):
 
-            st.write(update)
-
             if "model" in update:
-                msgs = update["model"]["messages"]
 
-                if msgs:
-                    final_response = msgs[-1].content
+                messages = update["model"]["messages"]
 
-        placeholder.write(final_response)
+                if messages:
+                    final_response = messages[-1].content
 
-        st.session_state.messages.append(
-            {
-                "role": "assistant",
-                "content": final_response,
-            }
-        )
+        st.write(final_response)
+
+    st.session_state.messages.append(
+        {
+            "role": "assistant",
+            "content": final_response
+        }
+    )
